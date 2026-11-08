@@ -111,12 +111,46 @@ final class AudioProcessorTests: XCTestCase {
         XCTAssertLessThanOrEqual(m.outPeak, AudioProcessor.ceiling + 1e-4)
     }
 
+    func testEqualizerCanBeSwitchedOffOnItsOwn() {
+        var gains = [Float](repeating: 0, count: AudioProcessor.bandFrequencies.count)
+        gains[3] = 6
+        let p = makeProcessor(LevelerParameters(bandGains: gains, eqEnabled: false, levelerEnabled: false))
+        let off = run(p, amplitude: 0.1, seconds: 1)
+        XCTAssertEqual(20 * log10f(off.outRMS / off.inRMS), 0, accuracy: 0.1, "EQ off must pass audio through unchanged")
+
+        p.update(LevelerParameters(bandGains: gains, eqEnabled: true, levelerEnabled: false))
+        let on = run(p, amplitude: 0.1, seconds: 0.5, measureSeconds: 0.3)
+        XCTAssertEqual(20 * log10f(on.outRMS / on.inRMS), 6, accuracy: 0.3, "EQ on must apply the band gain")
+    }
+
+    func testLevelerWorksWithEqualizerOff() {
+        let p = makeProcessor(LevelerParameters(eqEnabled: false, levelerEnabled: true, strength: 1))
+        let m = run(p, amplitude: 0.7, seconds: 2)
+        XCTAssertLessThan(20 * log10f(m.outRMS / m.inRMS), -10)
+    }
+
+    func testEverythingOffIsBitTransparent() {
+        let p = makeProcessor(LevelerParameters(eqEnabled: false, levelerEnabled: false))
+        let m = run(p, amplitude: 0.95, seconds: 1)
+        XCTAssertEqual(m.outRMS, m.inRMS, accuracy: 1e-4)
+        XCTAssertGreaterThan(m.outPeak, AudioProcessor.ceiling, "limiter must not touch audio when nothing is active")
+    }
+
+    func testSwitchingLevelerOffReleasesGainQuickly() {
+        let p = makeProcessor(LevelerParameters(levelerEnabled: true, strength: 1))
+        _ = run(p, amplitude: 0.7, seconds: 2)
+        XCTAssertLessThan(p.currentGainDb, -10)
+        p.update(LevelerParameters(levelerEnabled: false, strength: 1))
+        _ = run(p, amplitude: 0.7, seconds: 0.5, measureSeconds: 0.1)
+        XCTAssertEqual(p.currentGainDb, 0, accuracy: 0.1)
+    }
+
     func testParameterUpdateWhileRunning() {
         let p = makeProcessor(LevelerParameters(levelerEnabled: false))
         _ = run(p, amplitude: 0.1, seconds: 0.2)
         var gains = [Float](repeating: 0, count: AudioProcessor.bandFrequencies.count)
         gains[3] = -6
-        p.update(LevelerParameters(bandGains: gains, levelerEnabled: false))
+        p.update(LevelerParameters(bandGains: gains, eqEnabled: true, levelerEnabled: false))
         let m = run(p, amplitude: 0.1, seconds: 0.5, measureSeconds: 0.3)
         XCTAssertEqual(20 * log10f(m.outRMS / m.inRMS), -6, accuracy: 0.3)
     }

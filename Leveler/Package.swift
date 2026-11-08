@@ -11,7 +11,8 @@ let infoPlist = URL(fileURLWithPath: #filePath)
 
 let package = Package(
     name: "Leveler",
-    platforms: [.macOS(.v14)],
+    // Core Audio process taps need macOS 14.2.
+    platforms: [.macOS("14.2")],
     targets: [
         .target(name: "LevelerDSP"),
         .executableTarget(

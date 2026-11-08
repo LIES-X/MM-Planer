@@ -46,6 +46,6 @@ enum AudioCapturePermission {
         }
     }
 
-    static let settingsURL = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AudioCapture")!
-    static let fallbackSettingsURL = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")!
+    /// System Settings › Privacy & Security › Screen & System Audio Recording.
+    static let settingsURL = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")!
 }

@@ -3,7 +3,7 @@
 Kleine Mac-App für die Menüleiste, die bei Filmen, Serien und Videos die Lautstärke gleich hält – leise Dialoge werden lauter, plötzliche Explosionen leiser – und einen Equalizer mit 7 Bändern bietet.
 
 - **Ausgleich** an/aus mit großem Schalter, Stärke per Regler (Sanft · Ausgewogen · Stark)
-- **Equalizer** als Kurve: Punkte mit der Maus nach oben/unten ziehen; Presets *Film, Musik, Sprache, Nacht*; Rechtsklick → alle Bänder auf 0 dB
+- **Equalizer** mit eigenem Schalter neben „Klang“ – Ausgleich und EQ lassen sich unabhängig voneinander ein- und ausschalten. Als Kurve: Punkte mit der Maus nach oben/unten ziehen; Presets *Film, Musik, Sprache, Nacht*; Rechtsklick → alle Bänder auf 0 dB. Ein Preset wählen oder einen Punkt ziehen schaltet den EQ automatisch ein.
 - Live-Anzeige *Original* vs. *Mit Leveler*
 - Läuft im Hintergrund (nur Symbol in der Menüleiste, kein Dock-Symbol), optional **Autostart** beim Anmelden
 - Wirkt auf den gesamten Systemton – egal ob Safari, Netflix, YouTube, VLC oder Apple TV
@@ -41,6 +41,7 @@ Systemton ──► Core Audio Tap (Original stumm) ──► EQ (7 Bänder) ─
 - **EQ:** 7 Peaking-Filter (60 Hz … 14 kHz, ±12 dB).
 - **Leveler:** misst die Lautheit (schnell steigend, langsam fallend) und regelt Richtung −20 dBFS. Laute Stellen werden in ~15 ms heruntergeregelt, leise Stellen über ~2,5 s sanft angehoben. Stille wird nie hochgezogen (kein Rauschen).
 - **Limiter:** harte Obergrenze bei −2 dBFS, damit auch ein plötzlicher Knall nie übersteuert.
+- Sind EQ **und** Ausgleich aus, wird der Ton unverändert durchgereicht. Ein- und Ausschalten blendet in wenigen Millisekunden über – ohne Knacken.
 - Wechselst du das Ausgabegerät (z. B. AirPods), startet Leveler automatisch auf dem neuen Gerät neu.
 
 ## Projektaufbau

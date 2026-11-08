@@ -11,7 +11,7 @@ struct LevelerApp: App {
             ContentView(engine: state.engine)
                 .environmentObject(state)
         } label: {
-            Image(systemName: state.levelerOn ? "waveform" : "waveform.slash")
+            Image(systemName: state.isProcessing ? "waveform" : "waveform.slash")
                 .accessibilityLabel("Leveler")
         }
         .menuBarExtraStyle(.window)

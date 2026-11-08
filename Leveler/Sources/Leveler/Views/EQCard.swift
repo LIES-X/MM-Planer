@@ -9,17 +9,25 @@ struct EQCard: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 6) {
                 Text("Klang").font(.system(size: 15, weight: .bold))
+                Toggle("Equalizer", isOn: $state.eqOn.animation(.easeInOut(duration: 0.25)))
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+                    .tint(Theme.accent)
+                    .help(state.eqOn ? "Equalizer ausschalten" : "Equalizer einschalten")
+                    .padding(.leading, 4)
                 Spacer()
                 ForEach(AppState.presets) { preset in
                     Button(preset.name) { state.apply(preset) }
-                        .buttonStyle(ChipButtonStyle(filled: state.preset == preset.name))
+                        .buttonStyle(ChipButtonStyle(filled: state.eqOn && state.preset == preset.name))
                         .animation(.easeInOut(duration: 0.2), value: state.preset)
                 }
             }
 
             EQGraph(bands: state.bands,
                     onChange: { index, value in state.setBand(index, to: value) },
-                    history: state.history)
+                    history: state.history,
+                    enabled: state.eqOn)
                 .contextMenu {
                     Button("Alle Bänder auf 0 dB") { state.resetEQ() }
                 }
@@ -32,12 +40,16 @@ struct EQCard: View {
 
 /// Smooth curve through the band values with handles, an animated spectrum behind,
 /// and frequency / dB labels underneath. Drag anywhere to move the nearest band.
+/// When `enabled` is false the curve is drawn grey and flat-looking (dimmed).
 struct EQGraph: View {
     let bands: [Double]
     let onChange: (Int, Double) -> Void
     let history: LevelHistory
+    var enabled = true
 
     @State private var dragIndex: Int?
+
+    private var curveColor: Color { enabled ? Theme.accent : Theme.originalLine }
 
     private let graphHeight: CGFloat = 156
     private let labelHeight: CGFloat = 36
@@ -48,7 +60,7 @@ struct EQGraph: View {
         GeometryReader { geo in
             let width = geo.size.width
             ZStack(alignment: .topLeading) {
-                SpectrumView(history: history)
+                SpectrumView(history: history, active: enabled)
                     .frame(width: width - 2 * Self.sidePad, height: graphHeight)
                     .offset(x: Self.sidePad)
 
@@ -56,11 +68,11 @@ struct EQGraph: View {
                     .frame(width: width, height: graphHeight)
 
                 EQCurveShape(values: EQVector(bands), closed: true)
-                    .fill(Theme.accent.opacity(0.16))
+                    .fill(curveColor.opacity(0.16))
                     .frame(width: width, height: graphHeight)
 
                 EQCurveShape(values: EQVector(bands), closed: false)
-                    .stroke(Theme.accent, style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
+                    .stroke(curveColor, style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
                     .frame(width: width, height: graphHeight)
 
                 ForEach(bands.indices, id: \.self) { i in
@@ -68,7 +80,7 @@ struct EQGraph: View {
                     let active = dragIndex == i
                     Circle()
                         .fill(.white)
-                        .overlay(Circle().strokeBorder(Theme.accent, lineWidth: 3))
+                        .overlay(Circle().strokeBorder(curveColor, lineWidth: 3))
                         .frame(width: active ? 22 : 18, height: active ? 22 : 18)
                         .shadow(color: .black.opacity(0.18), radius: 2, y: 1)
                         .position(point)
@@ -80,6 +92,7 @@ struct EQGraph: View {
                             .foregroundStyle(Theme.secondary)
                         Text(Self.dbText(bands[i]))
                             .font(.system(size: 12, weight: .bold))
+                            .foregroundStyle(enabled ? Theme.ink : Theme.secondary)
                             .monospacedDigit()
                             .contentTransition(.numericText())
                     }
@@ -100,8 +113,9 @@ struct EQGraph: View {
             )
         }
         .frame(height: graphHeight + 8 + labelHeight)
+        .animation(.easeInOut(duration: 0.25), value: enabled)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Equalizer")
+        .accessibilityLabel(enabled ? "Equalizer" : "Equalizer (aus)")
         .accessibilityValue(zip(AppState.bandLabels, bands).map { "\($0) Hertz \(Self.dbText($1)) dB" }.joined(separator: ", "))
     }
 
@@ -145,7 +159,7 @@ private struct GridLines: View {
                                style: StrokeStyle(lineWidth: 1, dash: dashed ? [3, 5] : []))
             }
             for (text, y) in [("+12", top), ("0", mid), ("−12", bottom)] {
-                context.draw(Text(text).font(.system(size: 10, weight: .semibold)).foregroundColor(Theme.secondary),
+                context.draw(Text(text).font(.system(size: 10, weight: .semibold)).foregroundStyle(Theme.secondary),
                              at: CGPoint(x: left - 4, y: y), anchor: .trailing)
             }
         }
@@ -153,15 +167,17 @@ private struct GridLines: View {
     }
 }
 
-/// Soft bars dancing behind the curve; they get taller when audio is playing.
+/// Soft bars dancing behind the curve; they get taller when audio is playing
+/// and settle down to a quiet idle motion when the EQ is off.
 private struct SpectrumView: View {
     let history: LevelHistory
+    var active = true
 
     var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 30)) { timeline in
             Canvas { context, size in
                 let t = timeline.date.timeIntervalSinceReferenceDate
-                let level = CGFloat(history.latestOutput)
+                let level = active ? CGFloat(history.latestOutput) : 0
                 let count = 36
                 let gap: CGFloat = 4
                 let barWidth = (size.width - gap * CGFloat(count - 1)) / CGFloat(count)
@@ -170,7 +186,8 @@ private struct SpectrumView: View {
                     let osc = 0.5 + 0.5 * sin(t * speeds[i % speeds.count] + Double(i) * 1.7)
                     let h = size.height * (0.10 + 0.72 * CGFloat(osc) * (0.28 + 0.72 * level))
                     let rect = CGRect(x: CGFloat(i) * (barWidth + gap), y: size.height - h, width: barWidth, height: h)
-                    context.fill(Path(roundedRect: rect, cornerRadius: 2), with: .color(Theme.accent.opacity(0.10)))
+                    context.fill(Path(roundedRect: rect, cornerRadius: 2),
+                                 with: .color((active ? Theme.accent : Theme.originalLine).opacity(0.10)))
                 }
             }
         }

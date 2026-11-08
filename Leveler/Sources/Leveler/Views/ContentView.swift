@@ -69,21 +69,26 @@ struct ContentView: View {
         }
     }
 
-    private var isActive: Bool { engine.status == .running && state.levelerOn }
+    private var isActive: Bool { engine.status == .running && state.isProcessing }
 
     private var statusText: String {
         switch engine.status {
-        case .running: return state.levelerOn ? "Läuft im Hintergrund" : "Pausiert"
+        case .running:
+            switch (state.levelerOn, state.eqOn) {
+            case (true, true): return "Läuft im Hintergrund"
+            case (true, false): return "Nur Ausgleich"
+            case (false, true): return "Nur Equalizer"
+            case (false, false): return "Pausiert"
+            }
         case .starting: return "Startet…"
         case .stopped: return "Gestoppt"
-        case .needsPermission, .failed, .unsupported: return "Kein Audiozugriff"
+        case .needsPermission, .failed: return "Kein Audiozugriff"
         }
     }
 
     private var problem: ProblemCard.Problem? {
         switch engine.status {
         case .needsPermission: return .permission
-        case .unsupported: return .unsupported
         case .failed(let message): return .failed(message)
         default: return nil
         }
@@ -136,7 +141,6 @@ private struct StatusDot: View {
 struct ProblemCard: View {
     enum Problem: Equatable {
         case permission
-        case unsupported
         case failed(String)
     }
 
@@ -154,19 +158,13 @@ struct ProblemCard: View {
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(Theme.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-            if problem != .unsupported {
-                HStack(spacing: 8) {
-                    if problem == .permission {
-                        Button("Freigabe öffnen") {
-                            if !NSWorkspace.shared.open(AudioCapturePermission.settingsURL) {
-                                NSWorkspace.shared.open(AudioCapturePermission.fallbackSettingsURL)
-                            }
-                        }
+            HStack(spacing: 8) {
+                if problem == .permission {
+                    Button("Freigabe öffnen") { NSWorkspace.shared.open(AudioCapturePermission.settingsURL) }
                         .buttonStyle(ChipButtonStyle(filled: true))
-                    }
-                    Button("Erneut versuchen") { engine.requestPermissionAndStart() }
-                        .buttonStyle(ChipButtonStyle(filled: problem != .permission))
                 }
+                Button("Erneut versuchen") { engine.requestPermissionAndStart() }
+                    .buttonStyle(ChipButtonStyle(filled: problem != .permission))
             }
         }
         .padding(16)
@@ -177,7 +175,6 @@ struct ProblemCard: View {
     private var title: String {
         switch problem {
         case .permission: return "Zugriff auf den Systemton fehlt"
-        case .unsupported: return "macOS zu alt"
         case .failed: return "Ton konnte nicht gestartet werden"
         }
     }
@@ -186,8 +183,6 @@ struct ProblemCard: View {
         switch problem {
         case .permission:
             return "Erlaube Leveler unter Systemeinstellungen › Datenschutz & Sicherheit › Bildschirm- & Systemaudioaufnahme › „Nur Systemaudioaufnahme“."
-        case .unsupported:
-            return "Leveler braucht macOS 14.2 (Sonoma) oder neuer."
         case .failed(let detail):
             return detail
         }

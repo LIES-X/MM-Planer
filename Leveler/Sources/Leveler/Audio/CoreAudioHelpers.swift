@@ -74,6 +74,16 @@ enum CoreAudioHelpers {
         return status == noErr ? object : unknown
     }
 
+    /// Replaces a running tap's description (e.g. to change the excluded processes).
+    static func setTapDescription(_ description: CATapDescription, on tap: AudioObjectID) {
+        var addr = address(kAudioTapPropertyDescription)
+        var object: Unmanaged<CATapDescription>? = Unmanaged.passUnretained(description)
+        withUnsafePointer(to: &object) { ptr in
+            _ = AudioObjectSetPropertyData(tap, &addr, 0, nil,
+                                           UInt32(MemoryLayout<Unmanaged<CATapDescription>?>.size), ptr)
+        }
+    }
+
     static func tapFormat(_ tap: AudioObjectID) throws -> AudioStreamBasicDescription {
         var addr = address(kAudioTapPropertyFormat)
         var format = AudioStreamBasicDescription()

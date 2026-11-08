@@ -11,7 +11,6 @@ final class SystemAudioEngine: ObservableObject {
         case starting
         case running
         case needsPermission
-        case unsupported
         case failed(String)
     }
 
@@ -26,7 +25,7 @@ final class SystemAudioEngine: ObservableObject {
     private var tapID = CoreAudioHelpers.unknown
     private var aggregateID = CoreAudioHelpers.unknown
     private var ioProcID: AudioDeviceIOProcID?
-    private var tapDescriptionRef: AnyObject?
+    private var tapDescription: CATapDescription?
 
     private var listenersInstalled = false
     private var restartWork: DispatchWorkItem?
@@ -39,12 +38,7 @@ final class SystemAudioEngine: ObservableObject {
 
     /// Starts (or restarts) processing. Main thread.
     func start() {
-        guard #available(macOS 14.2, *) else {
-            status = .unsupported
-            return
-        }
         installSystemListeners()
-
         switch AudioCapturePermission.status {
         case .granted:
             startNow()
@@ -66,6 +60,8 @@ final class SystemAudioEngine: ObservableObject {
 
     /// Stops processing and gives the system its original audio back. Main thread.
     func stop() {
+        restartWork?.cancel()
+        restartWork = nil
         removeSampleRateListener()
         if aggregateID != CoreAudioHelpers.unknown {
             if let procID = ioProcID {
@@ -77,18 +73,17 @@ final class SystemAudioEngine: ObservableObject {
         ioProcID = nil
         aggregateID = CoreAudioHelpers.unknown
 
-        if tapID != CoreAudioHelpers.unknown, #available(macOS 14.2, *) {
+        if tapID != CoreAudioHelpers.unknown {
             AudioHardwareDestroyProcessTap(tapID)
         }
         tapID = CoreAudioHelpers.unknown
-        tapDescriptionRef = nil
+        tapDescription = nil
         if status == .running || status == .starting { status = .stopped }
     }
 
     // MARK: - Setup
 
     private func startNow() {
-        guard #available(macOS 14.2, *) else { status = .unsupported; return }
         stop()
         status = .starting
         do {
@@ -100,21 +95,20 @@ final class SystemAudioEngine: ObservableObject {
         }
     }
 
-    @available(macOS 14.2, *)
     private func startTap() throws {
         let outputDevice = try CoreAudioHelpers.defaultOutputDevice()
         let outputUID = try CoreAudioHelpers.deviceUID(outputDevice)
         outputDeviceName = CoreAudioHelpers.deviceName(outputDevice) ?? "Ausgabegerät"
 
-        // Tap everything except our own output (otherwise we would hear ourselves in a loop).
-        let ownProcess = CoreAudioHelpers.processObject(for: getpid())
-        let excluded = ownProcess == CoreAudioHelpers.unknown ? [] : [ownProcess]
-        let description = CATapDescription(stereoGlobalTapButExcludeProcesses: excluded)
+        // Tap everything except our own output (otherwise we would hear ourselves in a loop,
+        // and "muted when tapped" would silence our own playback).
+        var ownProcess = CoreAudioHelpers.processObject(for: getpid())
+        let description = CATapDescription(stereoGlobalTapButExcludeProcesses: Self.processList(ownProcess))
         description.uuid = UUID()
         description.name = "Leveler"
         description.isPrivate = true
         description.muteBehavior = .mutedWhenTapped
-        tapDescriptionRef = description
+        tapDescription = description
 
         var tap = CoreAudioHelpers.unknown
         try check(AudioHardwareCreateProcessTap(description, &tap), "Systemton-Tap konnte nicht erstellt werden")
@@ -155,21 +149,21 @@ final class SystemAudioEngine: ObservableObject {
 
         try check(AudioDeviceStart(aggregate, procID), "Audiogerät konnte nicht gestartet werden")
 
-        // Our process object may only exist once we do audio I/O – exclude it now.
+        // If our process object did not exist yet (it appears once we are an audio
+        // client), exclude it now so we never tap our own output.
         if ownProcess == CoreAudioHelpers.unknown {
-            let lateOwn = CoreAudioHelpers.processObject(for: getpid())
-            if lateOwn != CoreAudioHelpers.unknown {
-                description.processes = [lateOwn]
-                var addr = CoreAudioHelpers.address(kAudioTapPropertyDescription)
-                var ref: CATapDescription = description
-                _ = withUnsafeMutablePointer(to: &ref) { ptr in
-                    AudioObjectSetPropertyData(tap, &addr, 0, nil,
-                                               UInt32(MemoryLayout<CATapDescription>.size), ptr)
-                }
+            ownProcess = CoreAudioHelpers.processObject(for: getpid())
+            if ownProcess != CoreAudioHelpers.unknown {
+                description.processes = Self.processList(ownProcess)
+                CoreAudioHelpers.setTapDescription(description, on: tap)
             }
         }
 
         installSampleRateListener(on: aggregate)
+    }
+
+    private static func processList(_ process: AudioObjectID) -> [NSNumber] {
+        process == CoreAudioHelpers.unknown ? [] : [NSNumber(value: process)]
     }
 
     // MARK: - Listeners
@@ -240,6 +234,7 @@ private final class RenderContext {
     func render(input: UnsafePointer<AudioBufferList>, output: UnsafeMutablePointer<AudioBufferList>) {
         let inBuffers = UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating: input))
         let outBuffers = UnsafeMutableAudioBufferListPointer(output)
+        let sampleSize = MemoryLayout<Float>.size
 
         // Frame count from the output side (Float32 samples, interleaved per buffer).
         var frames = 0
@@ -247,7 +242,7 @@ private final class RenderContext {
         for buffer in outBuffers {
             let n = Int(buffer.mNumberChannels)
             totalOut += n
-            if frames == 0, n > 0 { frames = Int(buffer.mDataByteSize) / (n * MemoryLayout<Float>.size) }
+            if frames == 0, n > 0 { frames = Int(buffer.mDataByteSize) / (n * sampleSize) }
         }
         frames = min(frames, capacity)
         guard frames > 0 else { return }
@@ -264,7 +259,7 @@ private final class RenderContext {
             defer { channelBase += n }
             guard n > 0, let raw = buffer.mData else { continue }
             let data = raw.assumingMemoryBound(to: Float.self)
-            let available = min(frames, Int(buffer.mDataByteSize) / (n * MemoryLayout<Float>.size))
+            let available = min(frames, Int(buffer.mDataByteSize) / (n * sampleSize))
             for c in 0..<n {
                 let channel = channelBase + c - firstTapChannel
                 guard channel == 0 || channel == 1 else { continue }
@@ -283,7 +278,7 @@ private final class RenderContext {
             defer { channelBase += n }
             guard n > 0, let raw = buffer.mData else { continue }
             let data = raw.assumingMemoryBound(to: Float.self)
-            let available = min(frames, Int(buffer.mDataByteSize) / (n * MemoryLayout<Float>.size))
+            let available = min(frames, Int(buffer.mDataByteSize) / (n * sampleSize))
             for c in 0..<n {
                 let channel = channelBase + c
                 if totalOut == 1 {

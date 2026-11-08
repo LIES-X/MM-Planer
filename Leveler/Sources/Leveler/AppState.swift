@@ -21,7 +21,10 @@ final class AppState: ObservableObject {
     static let bandLabels = ["60", "150", "400", "1k", "2.5k", "6k", "14k"]
     static let flat = [Double](repeating: 0, count: 7)
 
+    /// Loudness leveling on/off – independent of the equalizer.
     @Published var levelerOn: Bool { didSet { changed() } }
+    /// Equalizer on/off – independent of the leveler.
+    @Published var eqOn: Bool { didSet { changed() } }
     /// 0 … 100
     @Published var strength: Double { didSet { changed() } }
     /// dB per band, −12 … +12
@@ -45,6 +48,7 @@ final class AppState: ObservableObject {
     private let defaults = UserDefaults.standard
     private enum Keys {
         static let levelerOn = "levelerOn"
+        static let eqOn = "eqOn"
         static let strength = "strength"
         static let bands = "bands"
         static let preset = "preset"
@@ -53,6 +57,7 @@ final class AppState: ObservableObject {
     private init() {
         let d = UserDefaults.standard
         levelerOn = d.object(forKey: Keys.levelerOn) as? Bool ?? true
+        eqOn = d.object(forKey: Keys.eqOn) as? Bool ?? true
         strength = d.object(forKey: Keys.strength) as? Double ?? 70
         let storedBands = d.array(forKey: Keys.bands) as? [Double]
         bands = (storedBands?.count == 7 ? storedBands : nil) ?? AppState.presets[0].gains
@@ -65,10 +70,15 @@ final class AppState: ObservableObject {
         strength < 35 ? "Sanft" : (strength < 75 ? "Ausgewogen" : "Stark")
     }
 
+    /// True while at least one of the two stages changes the audio.
+    var isProcessing: Bool { levelerOn || eqOn }
+
+    /// Choosing a preset also switches the equalizer on (like Apple Music does).
     func apply(_ preset: EQPreset) {
         withAnimation(.spring(response: 0.55, dampingFraction: 0.72)) {
             bands = preset.gains
             self.preset = preset.name
+            eqOn = true
         }
     }
 
@@ -79,7 +89,9 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// Dragging a band also switches the equalizer on.
     func setBand(_ index: Int, to value: Double) {
+        if !eqOn { withAnimation(.easeInOut(duration: 0.25)) { eqOn = true } }
         let v = min(max(value.rounded(), -12), 12)
         guard bands.indices.contains(index), bands[index] != v else { return }
         bands[index] = v
@@ -88,6 +100,7 @@ final class AppState: ObservableObject {
 
     private func changed() {
         defaults.set(levelerOn, forKey: Keys.levelerOn)
+        defaults.set(eqOn, forKey: Keys.eqOn)
         defaults.set(strength, forKey: Keys.strength)
         defaults.set(bands, forKey: Keys.bands)
         pushToEngine()
@@ -96,6 +109,7 @@ final class AppState: ObservableObject {
     private func pushToEngine() {
         engine.processor.update(LevelerParameters(
             bandGains: bands.map { Float($0) },
+            eqEnabled: eqOn,
             levelerEnabled: levelerOn,
             strength: Float(strength / 100)
         ))
