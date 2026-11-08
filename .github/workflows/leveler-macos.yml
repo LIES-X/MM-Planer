@@ -1,0 +1,35 @@
+name: Leveler (macOS)
+
+on:
+  push:
+    paths:
+      - "Leveler/**"
+      - ".github/workflows/leveler-macos.yml"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+    defaults:
+      run:
+        working-directory: Leveler
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Swift-Version
+        run: swift --version
+
+      - name: Tests (Tonverarbeitung)
+        run: swift test
+
+      - name: App bauen (Universal)
+        run: UNIVERSAL=1 ./build-app.sh
+
+      - name: Zippen
+        run: ditto -c -k --keepParent build/Leveler.app build/Leveler.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Leveler-app
+          path: Leveler/build/Leveler.zip
+          retention-days: 30
