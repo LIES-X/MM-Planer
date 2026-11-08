@@ -162,8 +162,8 @@ final class SystemAudioEngine: ObservableObject {
         installSampleRateListener(on: aggregate)
     }
 
-    private static func processList(_ process: AudioObjectID) -> [NSNumber] {
-        process == CoreAudioHelpers.unknown ? [] : [NSNumber(value: process)]
+    private static func processList(_ process: AudioObjectID) -> [AudioObjectID] {
+        process == CoreAudioHelpers.unknown ? [] : [process]
     }
 
     // MARK: - Listeners
